@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест интеграции MPStats</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        .success { background: #d4edda; border-color: #c3e6cb; color: #155724; }
+        .error { background: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .info { background: #d1ecf1; border-color: #bee5eb; color: #0c5460; }
+        .photo-test { text-align: center; }
+        .photo-test img { max-width: 300px; border-radius: 10px; margin: 10px; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .chart-data { max-height: 200px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Тест интеграции анализа товара</h1>
+        
+        <div class="test-section info">
+            <h3>📋 Тестируемые функции</h3>
+            <ul>
+                <li>✅ Загрузка фотографии товара из MPStats</li>
+                <li>✅ Отображение графиков MPStats</li>
+                <li>✅ Интеграция данных в единой странице</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h3>🔬 Тест данных</h3>
+            <button onclick="testMPStatsData()">Протестировать MPStats API</button>
+            <div id="apiResult"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📸 Тест фотографии</h3>
+            <div class="photo-test">
+                <p>Оригинальный URL: <span id="originalUrl">Не загружен</span></p>
+                <p>Исправленный URL: <span id="fixedUrl">Не обработан</span></p>
+                <div id="photoContainer"></div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Тест данных графиков</h3>
+            <div id="chartDataContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        async function testMPStatsData() {
+            const resultDiv = document.getElementById('apiResult');
+            resultDiv.innerHTML = '<p>🔄 Загрузка данных...</p>';
+            
+            try {
+                const response = await fetch('http://localhost:8000/mpstats/advanced-analysis', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        article: '446467818',
+                        date_from: '2023-10-27',
+                        date_to: '2023-11-25',
+                        fbs: 1
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                // Тест фотографии
+                testPhoto(data.basic_info);
+                
+                // Тест графиков
+                testChartData(data.charts);
+                
+                resultDiv.innerHTML = `
+                    <div class="success">
+                        <h4>✅ API тест успешен!</h4>
+                        <p><strong>Товар:</strong> ${data.basic_info.name}</p>
+                        <p><strong>Продаж:</strong> ${data.sales_metrics.sales.toLocaleString()} шт.</p>
+                        <p><strong>Выручка:</strong> ${data.sales_metrics.revenue.toLocaleString()} ₽</p>
+                    </div>
+                `;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ Ошибка API</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function testPhoto(basicInfo) {
+            const originalUrlSpan = document.getElementById('originalUrl');
+            const fixedUrlSpan = document.getElementById('fixedUrl');
+            const photoContainer = document.getElementById('photoContainer');
+            
+            if (basicInfo.thumb_middle || basicInfo.thumb) {
+                const originalUrl = basicInfo.thumb_middle || basicInfo.thumb;
+                const fixedUrl = originalUrl.startsWith('//') ? `https:${originalUrl}` : originalUrl;
+                
+                originalUrlSpan.textContent = originalUrl;
+                fixedUrlSpan.textContent = fixedUrl;
+                
+                photoContainer.innerHTML = `
+                    <img src="${fixedUrl}" alt="Товар" 
+                         onload="this.parentElement.insertAdjacentHTML('beforeend', '<div class=\\"success\\">✅ Фото загружено успешно!</div>')"
+                         onerror="this.parentElement.insertAdjacentHTML('beforeend', '<div class=\\"error\\">❌ Ошибка загрузки фото</div>')">
+                `;
+            } else {
+                photoContainer.innerHTML = '<div class="error">❌ URL фото не найден в данных</div>';
+            }
+        }
+
+        function testChartData(charts) {
+            const container = document.getElementById('chartDataContainer');
+            
+            let chartsHtml = '';
+            
+            Object.entries(charts).forEach(([chartName, chartData]) => {
+                if (Array.isArray(chartData) && chartData.length > 0) {
+                    const hasData = chartData.some(value => value > 0);
+                    const statusClass = hasData ? 'success' : 'info';
+                    const statusIcon = hasData ? '✅' : 'ℹ️';
+                    
+                    chartsHtml += `
+                        <div class="${statusClass}" style="margin: 10px 0;">
+                            <h4>${statusIcon} ${chartName}</h4>
+                            <p><strong>Точек данных:</strong> ${chartData.length}</p>
+                            <p><strong>Диапазон:</strong> ${Math.min(...chartData)} - ${Math.max(...chartData)}</p>
+                            <div class="chart-data">
+                                <strong>Первые 10 значений:</strong> [${chartData.slice(0, 10).join(', ')}]
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+            
+            container.innerHTML = chartsHtml || '<div class="error">❌ Данные графиков не найдены</div>';
+        }
+
+        // Автоматический запуск теста при загрузке страницы
+        window.onload = function() {
+            console.log('🚀 Автоматический запуск теста интеграции...');
+            testMPStatsData();
+        };
+    </script>
+</body>
+</html> 

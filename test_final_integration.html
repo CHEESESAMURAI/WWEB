@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Финальный тест интеграции</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        .success { background: #d4edda; border-color: #c3e6cb; color: #155724; }
+        .error { background: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .info { background: #d1ecf1; border-color: #bee5eb; color: #0c5460; }
+        .warning { background: #fff3cd; border-color: #ffeaa7; color: #856404; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #0056b3; }
+        .data-display { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-top: 15px; }
+        .data-card { background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #007bff; }
+        .data-value { font-size: 1.2em; font-weight: bold; color: #007bff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Финальный тест интеграции анализа товара</h1>
+        
+        <div class="test-section info">
+            <h3>📋 Проверяемые исправления</h3>
+            <ul>
+                <li>⭐ <strong>Рейтинг:</strong> Должен отображать реальное значение из MPStats</li>
+                <li>📈 <strong>Продажи и выручка:</strong> Правильные расчеты на основе среднедневных показателей</li>
+                <li>💎 <strong>Прибыль:</strong> Расчет ~25% от выручки</li>
+                <li>📦 <strong>Остатки:</strong> Актуальные данные из MPStats</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h3>🧪 Тестирование данных</h3>
+            <button onclick="testArticle('314308192')">Тест артикул 314308192</button>
+            <button onclick="testArticle('446467818')">Тест артикул 446467818</button>
+            <div id="testResults"></div>
+        </div>
+    </div>
+
+    <script>
+        async function testArticle(article) {
+            const resultsDiv = document.getElementById('testResults');
+            resultsDiv.innerHTML = `<p>🔄 Тестирование артикула ${article}...</p>`;
+            
+            try {
+                const response = await fetch('http://localhost:8000/mpstats/advanced-analysis', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        article: article,
+                        date_from: '2025-06-19',
+                        date_to: '2025-07-19',
+                        fbs: 1
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const mpstatsData = await response.json();
+                
+                // Симулируем обработку данных как в коде
+                const processedData = processDataLikeInCode(mpstatsData);
+                
+                displayResults(article, mpstatsData, processedData);
+                
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ Ошибка тестирования</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function processDataLikeInCode(mpstatsData) {
+            const processed = {
+                rating: null,
+                reviews_count: null,
+                sales: null,
+                stocks: null
+            };
+
+            // Обновляем рейтинг и отзывы
+            if (mpstatsData.rating_reviews) {
+                processed.rating = mpstatsData.rating_reviews.rating;
+                processed.reviews_count = mpstatsData.rating_reviews.comments;
+            }
+
+            // Обновляем продажи
+            if (mpstatsData.sales_metrics) {
+                const dailySales = Math.round(mpstatsData.sales_metrics.sales_per_day_average || 0);
+                const dailyRevenue = Math.round(mpstatsData.sales_metrics.revenue_average || 0);
+                const dailyProfit = Math.round(dailyRevenue * 0.25);
+
+                processed.sales = {
+                    today: dailySales,
+                    weekly: dailySales * 7,
+                    monthly: dailySales * 30,
+                    total: mpstatsData.sales_metrics.sales,
+                    revenue: {
+                        daily: dailyRevenue,
+                        weekly: dailyRevenue * 7,
+                        monthly: dailyRevenue * 30,
+                        total: mpstatsData.sales_metrics.revenue
+                    },
+                    profit: {
+                        daily: dailyProfit,
+                        weekly: dailyProfit * 7,
+                        monthly: dailyProfit * 30
+                    }
+                };
+            }
+
+            // Обновляем остатки
+            if (mpstatsData.inventory) {
+                processed.stocks = {
+                    total: mpstatsData.inventory.balance
+                };
+            }
+
+            return processed;
+        }
+
+        function displayResults(article, original, processed) {
+            const resultsDiv = document.getElementById('testResults');
+            
+            let statusClass = 'success';
+            let statusIcon = '✅';
+            
+            // Проверяем корректность данных
+            const issues = [];
+            if (!processed.rating) issues.push('Нет рейтинга');
+            if (!processed.sales || !processed.sales.today) issues.push('Нет продаж');
+            if (!processed.sales || !processed.sales.revenue.daily) issues.push('Нет выручки');
+            if (!processed.sales || !processed.sales.profit.daily) issues.push('Нет прибыли');
+
+            if (issues.length > 0) {
+                statusClass = 'warning';
+                statusIcon = '⚠️';
+            }
+
+            resultsDiv.innerHTML = `
+                <div class="${statusClass}">
+                    <h4>${statusIcon} Результаты для артикула ${article}</h4>
+                    ${issues.length > 0 ? `<p><strong>Проблемы:</strong> ${issues.join(', ')}</p>` : '<p><strong>Все данные корректны!</strong></p>'}
+                </div>
+                
+                <div class="data-display">
+                    <div class="data-card">
+                        <h5>⭐ Рейтинг и отзывы</h5>
+                        <div class="data-value">${processed.rating || 'Н/Д'}/5</div>
+                        <p>Отзывов: ${processed.reviews_count ? processed.reviews_count.toLocaleString() : 'Н/Д'}</p>
+                    </div>
+                    
+                    <div class="data-card">
+                        <h5>📈 Продажи в день</h5>
+                        <div class="data-value">${processed.sales ? processed.sales.today.toLocaleString() : 'Н/Д'} шт.</div>
+                        <p>В месяц: ${processed.sales ? processed.sales.monthly.toLocaleString() : 'Н/Д'} шт.</p>
+                    </div>
+                    
+                    <div class="data-card">
+                        <h5>💰 Выручка в день</h5>
+                        <div class="data-value">${processed.sales ? processed.sales.revenue.daily.toLocaleString() : 'Н/Д'} ₽</div>
+                        <p>В месяц: ${processed.sales ? processed.sales.revenue.monthly.toLocaleString() : 'Н/Д'} ₽</p>
+                    </div>
+                    
+                    <div class="data-card">
+                        <h5>💎 Прибыль в день</h5>
+                        <div class="data-value">${processed.sales ? processed.sales.profit.daily.toLocaleString() : 'Н/Д'} ₽</div>
+                        <p>В месяц: ${processed.sales ? processed.sales.profit.monthly.toLocaleString() : 'Н/Д'} ₽</p>
+                    </div>
+                    
+                    <div class="data-card">
+                        <h5>📦 Остатки</h5>
+                        <div class="data-value">${processed.stocks ? processed.stocks.total.toLocaleString() : 'Н/Д'} шт.</div>
+                        <p>На складе</p>
+                    </div>
+                </div>
+                
+                <details style="margin-top: 20px;">
+                    <summary>🔍 Детали исходных данных MPStats</summary>
+                    <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto;">
+Rating: ${original.rating_reviews?.rating}
+Comments: ${original.rating_reviews?.comments}
+Sales per day avg: ${original.sales_metrics?.sales_per_day_average}
+Revenue avg: ${original.sales_metrics?.revenue_average}
+Balance: ${original.inventory?.balance}
+                    </pre>
+                </details>
+            `;
+        }
+
+        // Автоматический запуск тестирования
+        window.onload = function() {
+            console.log('🚀 Страница загружена, готова к тестированию');
+        };
+    </script>
+</body>
+</html> 

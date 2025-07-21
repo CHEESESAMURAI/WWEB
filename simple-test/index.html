@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wild Analytics Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        
+        .btn:hover {
+            background: #0056b3;
+        }
+        
+        .status {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .status.online {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.success {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🐺 Wild Analytics Dashboard</h1>
+            <p>Веб-версия бота для анализа Wildberries</p>
+            <span class="status online">Backend Online</span>
+            <span class="status success">Frontend Ready</span>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h3>🔐 Авторизация</h3>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label>Email:</label>
+                        <input type="email" id="email" value="test@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Пароль:</label>
+                        <input type="password" id="password" value="testpassword" required>
+                    </div>
+                    <button type="submit" class="btn">Войти</button>
+                </form>
+            </div>
+            
+            <div class="card">
+                <h3>📊 Статистика пользователя</h3>
+                <div id="userStats">
+                    <p>Загрузка данных...</p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>🔍 Анализ товара</h3>
+                <form id="productForm">
+                    <div class="form-group">
+                        <label>Артикул товара:</label>
+                        <input type="text" id="productId" placeholder="123456789" required>
+                    </div>
+                    <button type="submit" class="btn">Анализировать</button>
+                </form>
+                <div id="productResult"></div>
+            </div>
+            
+            <div class="card">
+                <h3>📈 Мониторинг рекламы</h3>
+                <form id="adForm">
+                    <div class="form-group">
+                        <label>Артикулы (через запятую):</label>
+                        <input type="text" id="adArticles" placeholder="123456789,987654321" required>
+                    </div>
+                    <button type="submit" class="btn">Мониторить</button>
+                </form>
+                <div id="adResult"></div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>🔧 Тест API подключения</h3>
+            <button class="btn" onclick="testAPI()">Проверить backend</button>
+            <div id="apiTest"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8001';
+        let authToken = localStorage.getItem('token');
+        
+        // Установка токена в заголовки
+        function setAuthHeader() {
+            return authToken ? {'Authorization': `Bearer ${authToken}`} : {};
+        }
+        
+        // Тест API
+        async function testAPI() {
+            const result = document.getElementById('apiTest');
+            result.innerHTML = '<p>Проверяем подключение...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/`);
+                const data = await response.text();
+                result.innerHTML = `<div class="success">✅ Backend доступен: ${data}</div>`;
+            } catch (error) {
+                result.innerHTML = `<div class="error">❌ Ошибка подключения: ${error.message}</div>`;
+            }
+        }
+        
+        // Авторизация
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({email, password})
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    authToken = data.access_token;
+                    localStorage.setItem('token', authToken);
+                    document.querySelector('#loginForm').innerHTML = '<div class="success">✅ Авторизация успешна!</div>';
+                    loadUserStats();
+                } else {
+                    throw new Error('Неверные данные для входа');
+                }
+            } catch (error) {
+                document.querySelector('#loginForm').innerHTML += `<div class="error">❌ ${error.message}</div>`;
+            }
+        });
+        
+        // Загрузка статистики пользователя
+        async function loadUserStats() {
+            try {
+                const response = await fetch(`${API_BASE}/user/dashboard`, {
+                    headers: setAuthHeader()
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('userStats').innerHTML = `
+                        <p><strong>Баланс:</strong> ${data.balance}₽</p>
+                        <p><strong>Подписка:</strong> ${data.subscription_tier}</p>
+                        <p><strong>Анализов:</strong> ${data.analyses_used}/${data.analyses_limit}</p>
+                    `;
+                } else {
+                    throw new Error('Ошибка загрузки данных');
+                }
+            } catch (error) {
+                document.getElementById('userStats').innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        }
+        
+        // Анализ товара
+        document.getElementById('productForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const productId = document.getElementById('productId').value;
+            const resultDiv = document.getElementById('productResult');
+            
+            resultDiv.innerHTML = '<p>🔄 Анализируем товар...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/analysis/product`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...setAuthHeader()
+                    },
+                    body: JSON.stringify({article: productId})
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `
+                        <div class="result">
+                            <h4>✅ Результат анализа:</h4>
+                            <p><strong>Название:</strong> ${data.name || 'Не найдено'}</p>
+                            <p><strong>Цена:</strong> ${data.price || 'Не найдена'}₽</p>
+                            <p><strong>Рейтинг:</strong> ${data.rating || 'Нет данных'}</p>
+                            <p><strong>Продаж в месяц:</strong> ${data.sales_month || 'Нет данных'}</p>
+                        </div>
+                    `;
+                } else {
+                    throw new Error('Ошибка анализа товара');
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        });
+        
+        // Мониторинг рекламы
+        document.getElementById('adForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const articles = document.getElementById('adArticles').value.split(',').map(s => s.trim());
+            const resultDiv = document.getElementById('adResult');
+            
+            resultDiv.innerHTML = '<p>🔄 Анализируем рекламные кампании...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/planning/ad-monitoring`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...setAuthHeader()
+                    },
+                    body: JSON.stringify({articles: articles})
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    let resultHTML = '<div class="result"><h4>✅ Результат мониторинга:</h4>';
+                    
+                    if (data.campaigns && data.campaigns.length > 0) {
+                        data.campaigns.forEach(campaign => {
+                            const status = campaign.roi >= 0 ? '🟢' : '🔴';
+                            resultHTML += `
+                                <p><strong>${status} Артикул ${campaign.article}:</strong></p>
+                                <p>ROI: ${campaign.roi}%</p>
+                                <p>Расходы: ${campaign.expenses}₽</p>
+                                <p>Выручка: ${campaign.revenue}₽</p>
+                                <hr>
+                            `;
+                        });
+                    } else {
+                        resultHTML += '<p>Данные по рекламе не найдены</p>';
+                    }
+                    
+                    resultHTML += '</div>';
+                    resultDiv.innerHTML = resultHTML;
+                } else {
+                    throw new Error('Ошибка мониторинга рекламы');
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ ${error.message}</div>`;
+            }
+        });
+        
+        // Проверяем токен при загрузке
+        if (authToken) {
+            loadUserStats();
+        }
+        
+        // Автоматический тест API при загрузке
+        setTimeout(testAPI, 1000);
+    </script>
+</body>
+</html>

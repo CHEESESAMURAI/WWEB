@@ -1,0 +1,45 @@
+INFO:     Will watch for changes in these directories: ['/Users/user/Desktop/WILD-BOT 6']
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+INFO:     Started reloader process [61079] using StatReload
+/Users/user/Downloads/DropMeFiles_4AcOg/NUMY/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+INFO:     Started server process [61081]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+База данных инициализирована.
+INFO:     127.0.0.1:60568 - "GET /user/dashboard HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60572 - "GET /user/dashboard HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60572 - "GET /user/dashboard HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60572 - "POST /auth/login HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60586 - "POST /auth/login HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60586 - "POST /auth/login HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60586 - "POST /auth/login HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60586 - "POST /auth/login HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60586 - "POST /auth/login HTTP/1.1" 404 Not Found
+WARNING:  StatReload detected changes in 'web-dashboard/backend/supplier_analysis.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [61081]
+/Users/user/Downloads/DropMeFiles_4AcOg/NUMY/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+INFO:     Started server process [61583]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  StatReload detected changes in 'web-dashboard/backend/supplier_analysis.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [61583]
+База данных инициализирована.
+/Users/user/Downloads/DropMeFiles_4AcOg/NUMY/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+INFO:     Started server process [66647]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [66647]
+База данных инициализирована.
+INFO:     Stopping reloader process [61079]

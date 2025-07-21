@@ -1,0 +1,149 @@
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import MainLayout from './components/Layout/MainLayout';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Dashboard from './pages/Dashboard';
+import LoadingSpinner from './components/UI/LoadingSpinner';
+
+// Analytics pages
+import ProductAnalysis from './pages/Analytics/ProductAnalysis';
+import ComingSoonPage from './pages/ComingSoonPage';
+
+// Planning pages
+import AdMonitoring from './pages/Planning/AdMonitoring';
+
+// Простые заглушки для остальных страниц
+const BrandAnalysis = () => <ComingSoonPage title="Анализ Брендов" />;
+const NicheAnalysis = () => <ComingSoonPage title="Анализ Ниш" />;
+const SupplierAnalysis = () => <ComingSoonPage title="Анализ Поставщиков" />;
+const SeasonalityAnalysis = () => <ComingSoonPage title="Анализ Сезонности" />;
+const ExternalAnalysis = () => <ComingSoonPage title="Внешний Анализ" />;
+const SupplyPlanning = () => <ComingSoonPage title="Планирование Поставок" />;
+const GlobalSearch = () => <ComingSoonPage title="Глобальный Поиск" />;
+const BloggerSearch = () => <ComingSoonPage title="Поиск Блогеров" />;
+const AIGeneration = () => <ComingSoonPage title="AI Генерация" />;
+const OracleQueries = () => <ComingSoonPage title="Oracle Запросы" />;
+const Profile = () => <ComingSoonPage title="Профиль" />;
+const Subscription = () => <ComingSoonPage title="Подписки" />;
+const Settings = () => <ComingSoonPage title="Настройки" />;
+
+// Create a query client
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      retry: 1,
+    },
+  },
+});
+
+// Protected Route component
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+}
+
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+  const { user, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return <LoadingSpinner />;
+  }
+  
+  if (!user) {
+    return <Navigate to="/login" />;
+  }
+  
+  return <>{children}</>;
+};
+
+// Public Route component (redirect to dashboard if authenticated)
+const PublicRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+  const { user, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return <LoadingSpinner />;
+  }
+  
+  if (user) {
+    return <Navigate to="/dashboard" />;
+  }
+  
+  return <>{children}</>;
+};
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <Router>
+          <div className="App">
+            <Routes>
+              {/* Public routes */}
+              <Route 
+                path="/login" 
+                element={
+                  <PublicRoute>
+                    <Login />
+                  </PublicRoute>
+                } 
+              />
+              <Route 
+                path="/register" 
+                element={
+                  <PublicRoute>
+                    <Register />
+                  </PublicRoute>
+                } 
+              />
+              
+              {/* Protected routes */}
+              <Route path="/" element={<Navigate to="/dashboard" />} />
+              <Route 
+                path="/*" 
+                element={
+                  <ProtectedRoute>
+                    <MainLayout>
+                      <Routes>
+                        <Route path="/dashboard" element={<Dashboard />} />
+                        
+                        {/* Analytics routes */}
+                        <Route path="/analytics/product" element={<ProductAnalysis />} />
+                        <Route path="/analytics/brand" element={<BrandAnalysis />} />
+                        <Route path="/analytics/niche" element={<NicheAnalysis />} />
+                        <Route path="/analytics/supplier" element={<SupplierAnalysis />} />
+                        <Route path="/analytics/seasonality" element={<SeasonalityAnalysis />} />
+                        <Route path="/analytics/external" element={<ExternalAnalysis />} />
+                        
+                        {/* Planning routes */}
+                        <Route path="/planning/supply" element={<SupplyPlanning />} />
+                        <Route path="/planning/ads" element={<AdMonitoring />} />
+                        
+                        {/* Search routes */}
+                        <Route path="/search/global" element={<GlobalSearch />} />
+                        <Route path="/search/bloggers" element={<BloggerSearch />} />
+                        
+                        {/* AI routes */}
+                        <Route path="/ai/generate" element={<AIGeneration />} />
+                        <Route path="/ai/oracle" element={<OracleQueries />} />
+                        
+                        {/* Account routes */}
+                        <Route path="/profile" element={<Profile />} />
+                        <Route path="/subscription" element={<Subscription />} />
+                        <Route path="/settings" element={<Settings />} />
+                      </Routes>
+                    </MainLayout>
+                  </ProtectedRoute>
+                } 
+              />
+            </Routes>
+          </div>
+        </Router>
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+}
+
+export default App; 

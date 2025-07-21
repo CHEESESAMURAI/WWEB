@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wild Analytics - Backend Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .card { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .btn { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .btn:hover { background: #0056b3; }
+        .result { background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .error { background: #f8d7da; color: #721c24; }
+        .success { background: #d4edda; color: #155724; }
+        .info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Wild Analytics Backend Testing</h1>
+    
+    <div class="card">
+        <h3>Тестирование портов</h3>
+        <button class="btn" onclick="testPort(8000)">Тест порт 8000</button>
+        <button class="btn" onclick="testPort(8001)">Тест порт 8001</button>
+        <button class="btn" onclick="testPort(3000)">Тест порт 3000</button>
+        <div id="portResults"></div>
+    </div>
+    
+    <div class="card">
+        <h3>Тестирование эндпойнтов</h3>
+        <button class="btn" onclick="testEndpoint('8000', '/')">8000: /</button>
+        <button class="btn" onclick="testEndpoint('8000', '/docs')">8000: /docs</button>
+        <button class="btn" onclick="testEndpoint('8000', '/auth/login')">8000: /auth/login</button>
+        <br>
+        <button class="btn" onclick="testEndpoint('8001', '/')">8001: /</button>
+        <button class="btn" onclick="testEndpoint('8001', '/docs')">8001: /docs</button>
+        <button class="btn" onclick="testEndpoint('8001', '/auth/login')">8001: /auth/login</button>
+        <div id="endpointResults"></div>
+    </div>
+    
+    <div class="card">
+        <h3>Тестирование авторизации</h3>
+        <button class="btn" onclick="testAuth(8000)">Авторизация на 8000</button>
+        <button class="btn" onclick="testAuth(8001)">Авторизация на 8001</button>
+        <div id="authResults"></div>
+    </div>
+
+    <script>
+        async function testPort(port) {
+            const resultDiv = document.getElementById('portResults');
+            
+            try {
+                const response = await fetch(`http://localhost:${port}/`, { method: 'GET' });
+                const text = await response.text();
+                
+                resultDiv.innerHTML += `
+                    <div class="result success">
+                        ✅ Порт ${port}: Доступен (${response.status})
+                        <br>Ответ: ${text.substring(0, 100)}...
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML += `
+                    <div class="result error">
+                        ❌ Порт ${port}: Недоступен - ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        async function testEndpoint(port, endpoint) {
+            const resultDiv = document.getElementById('endpointResults');
+            
+            try {
+                const url = `http://localhost:${port}${endpoint}`;
+                let response;
+                
+                if (endpoint === '/auth/login') {
+                    response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email: "test@example.com",
+                            password: "testpassword"
+                        })
+                    });
+                } else {
+                    response = await fetch(url, { method: 'GET' });
+                }
+                
+                const text = await response.text();
+                
+                resultDiv.innerHTML += `
+                    <div class="result ${response.ok ? 'success' : 'error'}">
+                        ${response.ok ? '✅' : '❌'} ${port}${endpoint}: ${response.status}
+                        <br>Ответ: ${text.substring(0, 200)}...
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML += `
+                    <div class="result error">
+                        ❌ ${port}${endpoint}: Ошибка - ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        async function testAuth(port) {
+            const resultDiv = document.getElementById('authResults');
+            
+            try {
+                const response = await fetch(`http://localhost:${port}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: "test@example.com",
+                        password: "testpassword"
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.access_token) {
+                    resultDiv.innerHTML += `
+                        <div class="result success">
+                            ✅ Авторизация на ${port}: Успешно!
+                            <br>Токен: ${data.access_token.substring(0, 50)}...
+                        </div>
+                    `;
+                    
+                    // Тестируем защищенный эндпойнт
+                    const dashResponse = await fetch(`http://localhost:${port}/user/dashboard`, {
+                        headers: { 'Authorization': `Bearer ${data.access_token}` }
+                    });
+                    
+                    if (dashResponse.ok) {
+                        const dashData = await dashResponse.json();
+                        resultDiv.innerHTML += `
+                            <div class="result success">
+                                ✅ Dashboard на ${port}: Доступен!
+                                <br>Данные: ${JSON.stringify(dashData).substring(0, 100)}...
+                            </div>
+                        `;
+                    }
+                } else {
+                    resultDiv.innerHTML += `
+                        <div class="result error">
+                            ❌ Авторизация на ${port}: Не удалась
+                            <br>Ответ: ${JSON.stringify(data)}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML += `
+                    <div class="result error">
+                        ❌ Авторизация на ${port}: Ошибка - ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        // Автоматический тест при загрузке
+        window.onload = function() {
+            setTimeout(() => {
+                testPort(8000);
+                testPort(8001);
+            }, 1000);
+        };
+    </script>
+</body>
+</html>
