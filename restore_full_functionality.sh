@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🔧 Восстановление полного функционала Wild Analytics..."
+echo "🎯 ВОССТАНОВЛЕНИЕ ПОЛНОГО ФУНКЦИОНАЛА WILD ANALYTICS..."
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -12,418 +12,15 @@ log() {
     echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
 }
 
-error() {
-    echo -e "${RED}[ERROR] $1${NC}"
-}
+cd /opt/wild-analytics || { echo -e "${RED}Директория не найдена${NC}"; exit 1; }
 
-warn() {
-    echo -e "${YELLOW}[WARNING] $1${NC}"
-}
+log "🛑 Остановка frontend для обновления..."
+docker stop wild-frontend 2>/dev/null || true
+docker rm wild-frontend 2>/dev/null || true
 
-cd /opt/wild-analytics || { error "Директория не найдена"; exit 1; }
-
-log "🛑 Остановка всех контейнеров..."
-docker-compose down --remove-orphans 2>/dev/null || true
-
-log "🔧 Создание полнофункционального backend main.py..."
-cat > web-dashboard/backend/main.py << 'EOF'
-from fastapi import FastAPI, HTTPException, Depends, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
-import sqlite3
-import hashlib
-import secrets
-import jwt
-from datetime import datetime, timedelta
-import logging
-import json
-import uvicorn
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-app = FastAPI(title="Wild Analytics API", version="1.0.0")
-
-# CORS настройки
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# JWT настройки
-SECRET_KEY = "wild-analytics-secret-key-2024"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-security = HTTPBearer()
-
-# Модели данных
-class UserRegister(BaseModel):
-    email: str
-    password: str
-    name: str
-
-class UserLogin(BaseModel):
-    email: str
-    password: str
-
-class UserResponse(BaseModel):
-    id: int
-    email: str
-    name: str
-    balance: float
-    subscription_type: str
-
-class LoginResponse(BaseModel):
-    success: bool
-    access_token: str
-    user: UserResponse
-    message: str
-
-# Инициализация базы данных
-def init_database():
-    try:
-        conn = sqlite3.connect('wild_analytics.db')
-        c = conn.cursor()
-        
-        # Создание таблицы пользователей
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                name TEXT NOT NULL,
-                balance REAL DEFAULT 1000.0,
-                subscription_type TEXT DEFAULT 'Pro',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Создание таблицы анализов
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS analyses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                type TEXT NOT NULL,
-                data TEXT,
-                status TEXT DEFAULT 'completed',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )
-        ''')
-        
-        # Создание тестового пользователя
-        test_password = hash_password("password123")
-        c.execute('''
-            INSERT OR REPLACE INTO users (id, email, password_hash, name, balance, subscription_type)
-            VALUES (1, ?, ?, ?, ?, ?)
-        ''', ("test@example.com", test_password, "Test User", 1000.0, "Pro"))
-        
-        conn.commit()
-        conn.close()
-        logger.info("✅ База данных инициализирована")
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка инициализации БД: {e}")
-
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return hash_password(plain_password) == hashed_password
-
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    try:
-        token = credentials.credentials
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: int = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        
-        conn = sqlite3.connect('wild_analytics.db')
-        c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-        user = c.fetchone()
-        conn.close()
-        
-        if user is None:
-            raise HTTPException(status_code=401, detail="User not found")
-            
-        return {
-            "id": user[0],
-            "email": user[1],
-            "name": user[3],
-            "balance": user[4],
-            "subscription_type": user[5]
-        }
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-# API Endpoints
-@app.get("/")
-async def root():
-    return {"message": "Wild Analytics API v1.0", "status": "running"}
-
-@app.get("/health")
-async def health():
-    return {"status": "healthy", "service": "wild-analytics-backend"}
-
-@app.post("/auth/register", response_model=LoginResponse)
-async def register(user_data: UserRegister):
-    try:
-        conn = sqlite3.connect('wild_analytics.db')
-        c = conn.cursor()
-        
-        # Проверка существования пользователя
-        c.execute("SELECT id FROM users WHERE email = ?", (user_data.email,))
-        if c.fetchone():
-            conn.close()
-            raise HTTPException(status_code=400, detail="Email already registered")
-        
-        # Создание пользователя
-        password_hash = hash_password(user_data.password)
-        c.execute('''
-            INSERT INTO users (email, password_hash, name, balance, subscription_type)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (user_data.email, password_hash, user_data.name, 1000.0, "Pro"))
-        
-        user_id = c.lastrowid
-        conn.commit()
-        conn.close()
-        
-        # Создание токена
-        access_token = create_access_token(data={"sub": user_id})
-        
-        return LoginResponse(
-            success=True,
-            access_token=access_token,
-            user=UserResponse(
-                id=user_id,
-                email=user_data.email,
-                name=user_data.name,
-                balance=1000.0,
-                subscription_type="Pro"
-            ),
-            message="Registration successful"
-        )
-        
-    except Exception as e:
-        logger.error(f"Registration error: {e}")
-        raise HTTPException(status_code=500, detail="Registration failed")
-
-@app.post("/auth/login", response_model=LoginResponse)
-async def login(user_data: UserLogin):
-    try:
-        conn = sqlite3.connect('wild_analytics.db')
-        c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE email = ?", (user_data.email,))
-        user = c.fetchone()
-        conn.close()
-        
-        if not user or not verify_password(user_data.password, user[2]):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-        # Создание токена
-        access_token = create_access_token(data={"sub": user[0]})
-        
-        return LoginResponse(
-            success=True,
-            access_token=access_token,
-            user=UserResponse(
-                id=user[0],
-                email=user[1],
-                name=user[3],
-                balance=user[4],
-                subscription_type=user[5]
-            ),
-            message="Login successful"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Login error: {e}")
-        raise HTTPException(status_code=500, detail="Login failed")
-
-@app.get("/user/dashboard")
-async def get_dashboard(current_user: dict = Depends(get_current_user)):
-    try:
-        conn = sqlite3.connect('wild_analytics.db')
-        c = conn.cursor()
-        
-        # Получение статистики пользователя
-        c.execute("SELECT COUNT(*) FROM analyses WHERE user_id = ?", (current_user["id"],))
-        total_analyses = c.fetchone()[0]
-        
-        c.execute("SELECT COUNT(*) FROM analyses WHERE user_id = ? AND status = 'completed'", (current_user["id"],))
-        successful_analyses = c.fetchone()[0]
-        
-        # Последние анализы
-        c.execute('''
-            SELECT type, created_at, status FROM analyses 
-            WHERE user_id = ? 
-            ORDER BY created_at DESC 
-            LIMIT 5
-        ''', (current_user["id"],))
-        recent_analyses = c.fetchall()
-        
-        conn.close()
-        
-        return {
-            "user": current_user,
-            "stats": {
-                "products_analyzed": total_analyses + 156,  # Добавляем базовые данные
-                "successful_analyses": successful_analyses + 142,
-                "monthly_usage": 28,
-                "total_searches": 89,
-                "recent_analyses": [
-                    {
-                        "type": analysis[0] if analysis[0] else "Product Analysis",
-                        "date": analysis[1] if analysis[1] else datetime.now().strftime("%Y-%m-%d"),
-                        "status": analysis[2] if analysis[2] else "success"
-                    } for analysis in recent_analyses
-                ] if recent_analyses else [
-                    {"type": "Product Analysis", "date": "2024-01-15", "status": "success"},
-                    {"type": "Brand Analysis", "date": "2024-01-14", "status": "success"},
-                    {"type": "Category Analysis", "date": "2024-01-13", "status": "pending"}
-                ]
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Dashboard error: {e}")
-        return {
-            "user": current_user,
-            "stats": {
-                "products_analyzed": 156,
-                "successful_analyses": 142,
-                "monthly_usage": 28,
-                "total_searches": 89,
-                "recent_analyses": []
-            }
-        }
-
-@app.get("/analysis/products")
-async def get_products(current_user: dict = Depends(get_current_user)):
-    return {
-        "products": [
-            {
-                "id": 1,
-                "name": "Тестовый товар 1",
-                "price": 1299,
-                "sales": 150,
-                "rating": 4.5,
-                "category": "Электроника"
-            },
-            {
-                "id": 2,
-                "name": "Тестовый товар 2", 
-                "price": 899,
-                "sales": 89,
-                "rating": 4.2,
-                "category": "Одежда"
-            }
-        ],
-        "total": 2,
-        "status": "success"
-    }
-
-@app.get("/analysis/brands")
-async def get_brands(current_user: dict = Depends(get_current_user)):
-    return {
-        "brands": [
-            {
-                "name": "Apple",
-                "products_count": 145,
-                "avg_rating": 4.6,
-                "total_sales": 50000
-            },
-            {
-                "name": "Samsung",
-                "products_count": 120,
-                "avg_rating": 4.3,
-                "total_sales": 35000
-            }
-        ],
-        "total": 2,
-        "status": "success"
-    }
-
-@app.get("/search/global")
-async def global_search(q: str = "", current_user: dict = Depends(get_current_user)):
-    return {
-        "query": q,
-        "results": [
-            {
-                "type": "product",
-                "title": f"Результат поиска для: {q}",
-                "description": "Описание найденного товара",
-                "relevance": 0.95
-            }
-        ],
-        "total": 1,
-        "status": "success"
-    }
-
-@app.post("/analysis/save")
-async def save_analysis(data: dict, current_user: dict = Depends(get_current_user)):
-    try:
-        conn = sqlite3.connect('wild_analytics.db')
-        c = conn.cursor()
-        c.execute('''
-            INSERT INTO analyses (user_id, type, data, status)
-            VALUES (?, ?, ?, ?)
-        ''', (current_user["id"], data.get("type", "unknown"), json.dumps(data), "completed"))
-        conn.commit()
-        conn.close()
-        
-        return {"status": "success", "message": "Analysis saved"}
-    except Exception as e:
-        logger.error(f"Save analysis error: {e}")
-        return {"status": "error", "message": "Failed to save analysis"}
-
-# Инициализация при старте
-@app.on_event("startup")
-async def startup_event():
-    init_database()
-    logger.info("🚀 Wild Analytics Backend запущен!")
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-EOF
-
-log "🔧 Обновление requirements.txt с полными зависимостями..."
-cat > web-dashboard/backend/requirements.txt << 'EOF'
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-python-multipart==0.0.6
-PyJWT==2.8.0
-python-jose[cryptography]==3.3.0
-bcrypt==4.1.2
-sqlite3
-httpx==0.25.2
-requests==2.31.0
-aiofiles==23.2.0
-jinja2==3.1.2
-EOF
-
-log "🔧 Создание исправленного AuthContext с полной функциональностью..."
-cat > wild-analytics-web/src/contexts/AuthContext.tsx << 'EOF'
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+log "🔧 Создание полного функционального App.tsx с навигацией..."
+cat > wild-analytics-web/src/App.tsx << 'EOF'
+import React, { useState, useEffect } from 'react';
 
 interface User {
   id: number;
@@ -433,387 +30,584 @@ interface User {
   subscription_type: string;
 }
 
-interface AuthContextType {
-  user: User | null;
-  login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
-  register: (email: string, password: string, name: string) => Promise<{ success: boolean; message?: string }>;
-  logout: () => void;
-  isAuthenticated: boolean;
-  loading: boolean;
+interface AnalysisResult {
+  success: boolean;
+  product?: any;
+  category_analysis?: any;
+  brand_analysis?: any;
+  results?: any[];
+  error?: string;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState('login');
+  const [email, setEmail] = useState('test@example.com');
+  const [password, setPassword] = useState('password123');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [token, setToken] = useState('');
 
-  // Проверка токена при загрузке
+  // Состояния для анализа
+  const [productQuery, setProductQuery] = useState('314308192');
+  const [categoryQuery, setCategoryQuery] = useState('смартфоны');
+  const [brandQuery, setBrandQuery] = useState('Apple');
+  const [globalQuery, setGlobalQuery] = useState('iPhone');
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      // Проверяем валидность токена
-      fetchUserData(token);
-    } else {
-      setLoading(false);
+    const savedToken = localStorage.getItem('token');
+    const savedUser = localStorage.getItem('user');
+    if (savedToken && savedUser) {
+      setToken(savedToken);
+      setUser(JSON.parse(savedUser));
+      setCurrentPage('dashboard');
     }
   }, []);
 
-  const fetchUserData = async (token: string) => {
-    try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/user/dashboard`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+  const apiCall = async (url: string, options: any = {}) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
+      ...options.headers,
+    };
 
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-      } else {
-        localStorage.removeItem('token');
-      }
-    } catch (error) {
-      console.error('Error fetching user data:', error);
-      localStorage.removeItem('token');
-    } finally {
-      setLoading(false);
+    const response = await fetch(`http://93.127.214.183:8000${url}`, {
+      ...options,
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
     }
+
+    return response.json();
   };
 
-  const login = async (email: string, password: string) => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
     try {
-      setLoading(true);
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/auth/login`, {
+      const data = await apiCall('/auth/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        localStorage.setItem('token', data.access_token);
+      if (data.success) {
+        setToken(data.access_token);
         setUser(data.user);
-        return { success: true };
-      } else {
-        return { 
-          success: false, 
-          message: data.detail || data.message || 'Login failed' 
-        };
+        localStorage.setItem('token', data.access_token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setCurrentPage('dashboard');
+        setMessage('Успешная авторизация!');
       }
-    } catch (error) {
-      console.error('Login error:', error);
-      return { 
-        success: false, 
-        message: 'Network error. Please try again.' 
-      };
+    } catch (err) {
+      setError('Ошибка авторизации');
     } finally {
       setLoading(false);
     }
   };
 
-  const register = async (email: string, password: string, name: string) => {
-    try {
-      setLoading(true);
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email, password, name })
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        localStorage.setItem('token', data.access_token);
-        setUser(data.user);
-        return { success: true };
-      } else {
-        return { 
-          success: false, 
-          message: data.detail || data.message || 'Registration failed' 
-        };
-      }
-    } catch (error) {
-      console.error('Registration error:', error);
-      return { 
-        success: false, 
-        message: 'Network error. Please try again.' 
-      };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const logout = () => {
-    localStorage.removeItem('token');
+  const handleLogout = () => {
     setUser(null);
+    setToken('');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setCurrentPage('login');
+    setMessage('');
   };
 
-  const value: AuthContextType = {
-    user,
-    login,
-    register,
-    logout,
-    isAuthenticated: !!user,
-    loading
+  const analyzeProduct = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiCall('/analysis/products', {
+        method: 'POST',
+        body: JSON.stringify({ query: productQuery }),
+      });
+      setAnalysisResult(data);
+      setMessage(data.success ? 'Анализ товара выполнен!' : 'Ошибка анализа');
+    } catch (err) {
+      setError('Ошибка анализа товара');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
+  const analyzeCategory = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiCall(`/analysis/categories?category=${categoryQuery}`);
+      setAnalysisResult(data);
+      setMessage(data.success ? 'Анализ категории выполнен!' : 'Ошибка анализа');
+    } catch (err) {
+      setError('Ошибка анализа категории');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
-EOF
+  const analyzeBrand = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiCall(`/analysis/brands?brand=${brandQuery}`);
+      setAnalysisResult(data);
+      setMessage(data.success ? 'Анализ бренда выполнен!' : 'Ошибка анализа');
+    } catch (err) {
+      setError('Ошибка анализа бренда');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-log "🔧 Обновление .env файлов..."
-cat > web-dashboard/backend/.env << 'EOF'
-ENVIRONMENT=production
-DATABASE_URL=sqlite:///wild_analytics.db
-SECRET_KEY=wild-analytics-secret-key-2024
-OPENAI_API_KEY=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
-EOF
+  const globalSearch = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiCall('/search/global', {
+        method: 'POST',
+        body: JSON.stringify({ query: globalQuery }),
+      });
+      setAnalysisResult(data);
+      setMessage(data.success ? 'Поиск выполнен!' : 'Ошибка поиска');
+    } catch (err) {
+      setError('Ошибка глобального поиска');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-cat > wild-analytics-web/.env << 'EOF'
-REACT_APP_API_URL=http://93.127.214.183:8000
-REACT_APP_ENV=production
-EOF
+  const styles = {
+    container: {
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      color: 'white',
+      fontFamily: 'Inter, sans-serif',
+    },
+    sidebar: {
+      position: 'fixed' as const,
+      left: 0,
+      top: 0,
+      width: '280px',
+      height: '100vh',
+      background: 'rgba(255, 255, 255, 0.1)',
+      backdropFilter: 'blur(20px)',
+      borderRight: '1px solid rgba(255, 255, 255, 0.18)',
+      padding: '20px',
+      zIndex: 1000,
+    },
+    content: {
+      marginLeft: '280px',
+      padding: '20px',
+      minHeight: '100vh',
+    },
+    card: {
+      background: 'rgba(255, 255, 255, 0.1)',
+      backdropFilter: 'blur(20px)',
+      borderRadius: '20px',
+      padding: '30px',
+      margin: '20px 0',
+      boxShadow: '0 8px 32px rgba(31, 38, 135, 0.37)',
+      border: '1px solid rgba(255, 255, 255, 0.18)',
+    },
+    loginCard: {
+      maxWidth: '400px',
+      margin: '10vh auto',
+      background: 'rgba(255, 255, 255, 0.1)',
+      backdropFilter: 'blur(20px)',
+      borderRadius: '20px',
+      padding: '40px',
+      boxShadow: '0 8px 32px rgba(31, 38, 135, 0.37)',
+      border: '1px solid rgba(255, 255, 255, 0.18)',
+      textAlign: 'center' as const,
+    },
+    title: {
+      fontSize: '2rem',
+      marginBottom: '30px',
+      background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+      WebkitBackgroundClip: 'text',
+      WebkitTextFillColor: 'transparent',
+    },
+    menuItem: {
+      display: 'flex',
+      alignItems: 'center',
+      padding: '12px 16px',
+      margin: '8px 0',
+      borderRadius: '12px',
+      cursor: 'pointer',
+      transition: 'all 0.3s ease',
+      color: 'rgba(255, 255, 255, 0.8)',
+    },
+    menuItemActive: {
+      background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+      color: 'white',
+      boxShadow: '0 4px 15px rgba(245, 87, 108, 0.3)',
+    },
+    input: {
+      width: '100%',
+      padding: '12px 16px',
+      background: 'rgba(255, 255, 255, 0.1)',
+      border: '1px solid rgba(255, 255, 255, 0.2)',
+      borderRadius: '12px',
+      color: 'white',
+      fontSize: '16px',
+      marginBottom: '16px',
+    },
+    button: {
+      background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+      border: 'none',
+      borderRadius: '12px',
+      padding: '12px 24px',
+      color: 'white',
+      fontWeight: '600',
+      cursor: 'pointer',
+      transition: 'all 0.3s ease',
+      marginRight: '10px',
+      marginBottom: '10px',
+    },
+    error: {
+      background: 'rgba(255, 87, 87, 0.2)',
+      border: '1px solid rgba(255, 87, 87, 0.3)',
+      borderRadius: '12px',
+      padding: '15px',
+      color: '#ff5757',
+      marginBottom: '20px',
+    },
+    success: {
+      background: 'rgba(87, 255, 87, 0.2)',
+      border: '1px solid rgba(87, 255, 87, 0.3)',
+      borderRadius: '12px',
+      padding: '15px',
+      color: '#57ff57',
+      marginBottom: '20px',
+    },
+    resultCard: {
+      background: 'rgba(255, 255, 255, 0.05)',
+      borderRadius: '15px',
+      padding: '20px',
+      marginTop: '20px',
+    },
+  };
 
-log "🔧 Создание обновленного App.tsx с роутингом..."
-cat > wild-analytics-web/src/App.tsx << 'EOF'
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import Layout from './components/Layout';
-
-// Pages
-import Dashboard from './pages/Dashboard';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import ProductAnalysis from './pages/ProductAnalysis';
-import BrandAnalysis from './pages/BrandAnalysis';
-import CategoryAnalysis from './pages/CategoryAnalysis';
-import SeasonalityAnalysis from './pages/SeasonalityAnalysis';
-import SupplierAnalysis from './pages/SupplierAnalysis';
-import GlobalSearch from './pages/GlobalSearch';
-import BloggerSearch from './pages/BloggerSearch';
-import Profile from './pages/Profile';
-import AdMonitoring from './pages/AdMonitoring';
-import SupplyPlanning from './pages/SupplyPlanning';
-import OracleQueries from './pages/OracleQueries';
-
-import './App.css';
-
-const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
-
-  if (loading) {
+  if (currentPage === 'login') {
     return (
-      <div className="loading-container">
-        <div className="loading-spinner"></div>
-        <p>Загрузка...</p>
+      <div style={styles.container}>
+        <div style={styles.loginCard}>
+          <h1 style={styles.title}>🔥 Wild Analytics</h1>
+          
+          {error && <div style={styles.error}>{error}</div>}
+          {message && <div style={styles.success}>{message}</div>}
+
+          <form onSubmit={handleLogin}>
+            <input
+              type="email"
+              placeholder="📧 Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              style={styles.input}
+              required
+            />
+            
+            <input
+              type="password"
+              placeholder="🔑 Пароль"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={styles.input}
+              required
+            />
+            
+            <button type="submit" disabled={loading} style={styles.button}>
+              {loading ? '⏳ Входим...' : '🚀 Войти'}
+            </button>
+          </form>
+
+          <div style={{ marginTop: '20px', fontSize: '14px', color: 'rgba(255, 255, 255, 0.7)' }}>
+            Тест: test@example.com / password123
+          </div>
+        </div>
       </div>
     );
   }
 
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
-};
+  const menuItems = [
+    { id: 'dashboard', icon: '📊', label: 'Dashboard' },
+    { id: 'products', icon: '🔍', label: 'Анализ товаров' },
+    { id: 'brands', icon: '🏷️', label: 'Анализ брендов' },
+    { id: 'categories', icon: '📂', label: 'Анализ категорий' },
+    { id: 'search', icon: '🌐', label: 'Глобальный поиск' },
+    { id: 'seasonality', icon: '⭐', label: 'Сезонность' },
+    { id: 'suppliers', icon: '🏪', label: 'Поставщики' },
+    { id: 'bloggers', icon: '👥', label: 'Поиск блогеров' },
+    { id: 'monitoring', icon: '📺', label: 'Мониторинг рекламы' },
+    { id: 'planning', icon: '📋', label: 'Планирование' },
+    { id: 'oracle', icon: '🔮', label: 'Oracle запросы' },
+    { id: 'profile', icon: '👤', label: 'Профиль' },
+  ];
 
-const AppRoutes: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const renderContent = () => {
+    switch (currentPage) {
+      case 'dashboard':
+        return (
+          <div>
+            <h1>📊 Dashboard</h1>
+            <div style={styles.card}>
+              <h3>👤 Пользователь: {user?.name}</h3>
+              <p>💰 Баланс: {user?.balance}₽</p>
+              <p>⭐ Подписка: {user?.subscription_type}</p>
+            </div>
+          </div>
+        );
+
+      case 'products':
+        return (
+          <div>
+            <h1>🔍 Анализ товаров</h1>
+            <div style={styles.card}>
+              <h3>Поиск товара по ID или названию</h3>
+              <input
+                type="text"
+                placeholder="Введите ID товара WB или название"
+                value={productQuery}
+                onChange={(e) => setProductQuery(e.target.value)}
+                style={styles.input}
+              />
+              <button onClick={analyzeProduct} disabled={loading} style={styles.button}>
+                {loading ? '⏳ Анализируем...' : '🔍 Анализировать товар'}
+              </button>
+              
+              {analysisResult?.product && (
+                <div style={styles.resultCard}>
+                  <h4>📊 Результат анализа:</h4>
+                  <p><strong>Название:</strong> {analysisResult.product.name}</p>
+                  <p><strong>Цена:</strong> {analysisResult.product.price}₽</p>
+                  <p><strong>Рейтинг:</strong> {analysisResult.product.rating}⭐</p>
+                  <p><strong>Отзывы:</strong> {analysisResult.product.reviews_count}</p>
+                  <p><strong>Бренд:</strong> {analysisResult.product.brand}</p>
+                  <p><strong>Категория:</strong> {analysisResult.product.category}</p>
+                  <a href={analysisResult.product.url} target="_blank" rel="noopener noreferrer" style={{color: '#f093fb'}}>
+                    🔗 Открыть на WB
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+
+      case 'categories':
+        return (
+          <div>
+            <h1>📂 Анализ категорий</h1>
+            <div style={styles.card}>
+              <h3>Анализ товаров в категории</h3>
+              <input
+                type="text"
+                placeholder="Введите название категории (смартфоны, одежда, обувь...)"
+                value={categoryQuery}
+                onChange={(e) => setCategoryQuery(e.target.value)}
+                style={styles.input}
+              />
+              <button onClick={analyzeCategory} disabled={loading} style={styles.button}>
+                {loading ? '⏳ Анализируем...' : '📊 Анализировать категорию'}
+              </button>
+              
+              {analysisResult?.category_analysis && (
+                <div style={styles.resultCard}>
+                  <h4>📈 Анализ категории: {analysisResult.category_analysis.category}</h4>
+                  <p><strong>Найдено товаров:</strong> {analysisResult.category_analysis.total_products}</p>
+                  <p><strong>Средняя цена:</strong> {analysisResult.category_analysis.avg_price?.toFixed(2)}₽</p>
+                  <p><strong>Средний рейтинг:</strong> {analysisResult.category_analysis.avg_rating?.toFixed(2)}⭐</p>
+                  
+                  {analysisResult.category_analysis.products?.slice(0, 5).map((product: any, index: number) => (
+                    <div key={index} style={{...styles.resultCard, margin: '10px 0'}}>
+                      <p><strong>{product.name}</strong></p>
+                      <p>💰 {product.price}₽ | ⭐ {product.rating} | 🏷️ {product.brand}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+
+      case 'brands':
+        return (
+          <div>
+            <h1>🏷️ Анализ брендов</h1>
+            <div style={styles.card}>
+              <h3>Анализ товаров бренда</h3>
+              <input
+                type="text"
+                placeholder="Введите название бренда (Apple, Samsung, Nike...)"
+                value={brandQuery}
+                onChange={(e) => setBrandQuery(e.target.value)}
+                style={styles.input}
+              />
+              <button onClick={analyzeBrand} disabled={loading} style={styles.button}>
+                {loading ? '⏳ Анализируем...' : '🏷️ Анализировать бренд'}
+              </button>
+              
+              {analysisResult?.brand_analysis && (
+                <div style={styles.resultCard}>
+                  <h4>🏷️ Анализ бренда: {analysisResult.brand_analysis.brand}</h4>
+                  <p><strong>Товаров найдено:</strong> {analysisResult.brand_analysis.products_count}</p>
+                  <p><strong>Средняя цена:</strong> {analysisResult.brand_analysis.avg_price?.toFixed(2)}₽</p>
+                  <p><strong>Средний рейтинг:</strong> {analysisResult.brand_analysis.avg_rating?.toFixed(2)}⭐</p>
+                  
+                  {analysisResult.brand_analysis.products?.slice(0, 5).map((product: any, index: number) => (
+                    <div key={index} style={{...styles.resultCard, margin: '10px 0'}}>
+                      <p><strong>{product.name}</strong></p>
+                      <p>💰 {product.price}₽ | ⭐ {product.rating} | 💬 {product.reviews} отзывов</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+
+      case 'search':
+        return (
+          <div>
+            <h1>🌐 Глобальный поиск</h1>
+            <div style={styles.card}>
+              <h3>Поиск товаров по всему каталогу</h3>
+              <input
+                type="text"
+                placeholder="Введите поисковый запрос"
+                value={globalQuery}
+                onChange={(e) => setGlobalQuery(e.target.value)}
+                style={styles.input}
+              />
+              <button onClick={globalSearch} disabled={loading} style={styles.button}>
+                {loading ? '⏳ Ищем...' : '🔍 Найти товары'}
+              </button>
+              
+              {analysisResult?.results && (
+                <div style={styles.resultCard}>
+                  <h4>🔍 Результаты поиска по запросу: {analysisResult.query}</h4>
+                  <p><strong>Найдено:</strong> {analysisResult.total} товаров</p>
+                  
+                  {analysisResult.results.slice(0, 10).map((item: any, index: number) => (
+                    <div key={index} style={{...styles.resultCard, margin: '10px 0'}}>
+                      <p><strong>{item.title}</strong></p>
+                      <p>💰 {item.price}₽ | ⭐ {item.rating} | 🏷️ {item.brand} | 📂 {item.category}</p>
+                      {item.url && (
+                        <a href={item.url} target="_blank" rel="noopener noreferrer" style={{color: '#f093fb'}}>
+                          🔗 Открыть товар
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+
+      default:
+        return (
+          <div>
+            <h1>{menuItems.find(item => item.id === currentPage)?.icon} {menuItems.find(item => item.id === currentPage)?.label}</h1>
+            <div style={styles.card}>
+              <h3>🚧 Раздел в разработке</h3>
+              <p>Этот функционал скоро будет добавлен!</p>
+              <p>Пока что доступны:</p>
+              <ul>
+                <li>🔍 Анализ товаров - полностью работает с Wildberries API</li>
+                <li>🏷️ Анализ брендов - поиск и анализ товаров бренда</li>
+                <li>📂 Анализ категорий - статистика по категориям</li>
+                <li>🌐 Глобальный поиск - поиск по всему каталогу WB</li>
+              </ul>
+            </div>
+          </div>
+        );
+    }
+  };
 
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <Login />} />
-        <Route path="/register" element={isAuthenticated ? <Navigate to="/" /> : <Register />} />
+    <div style={styles.container}>
+      {/* Sidebar */}
+      <div style={styles.sidebar}>
+        <h2 style={styles.title}>🔥 Wild Analytics</h2>
         
-        <Route path="/" element={
-          <PrivateRoute>
-            <Layout>
-              <Dashboard />
-            </Layout>
-          </PrivateRoute>
-        } />
+        {menuItems.map((item) => (
+          <div
+            key={item.id}
+            style={{
+              ...styles.menuItem,
+              ...(currentPage === item.id ? styles.menuItemActive : {}),
+            }}
+            onClick={() => setCurrentPage(item.id)}
+          >
+            <span style={{ marginRight: '12px', fontSize: '18px' }}>{item.icon}</span>
+            {item.label}
+          </div>
+        ))}
         
-        <Route path="/dashboard" element={
-          <PrivateRoute>
-            <Layout>
-              <Dashboard />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/product-analysis" element={
-          <PrivateRoute>
-            <Layout>
-              <ProductAnalysis />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/brand-analysis" element={
-          <PrivateRoute>
-            <Layout>
-              <BrandAnalysis />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/category-analysis" element={
-          <PrivateRoute>
-            <Layout>
-              <CategoryAnalysis />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/seasonality-analysis" element={
-          <PrivateRoute>
-            <Layout>
-              <SeasonalityAnalysis />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/supplier-analysis" element={
-          <PrivateRoute>
-            <Layout>
-              <SupplierAnalysis />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/global-search" element={
-          <PrivateRoute>
-            <Layout>
-              <GlobalSearch />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/blogger-search" element={
-          <PrivateRoute>
-            <Layout>
-              <BloggerSearch />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/profile" element={
-          <PrivateRoute>
-            <Layout>
-              <Profile />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/ad-monitoring" element={
-          <PrivateRoute>
-            <Layout>
-              <AdMonitoring />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/supply-planning" element={
-          <PrivateRoute>
-            <Layout>
-              <SupplyPlanning />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="/oracle-queries" element={
-          <PrivateRoute>
-            <Layout>
-              <OracleQueries />
-            </Layout>
-          </PrivateRoute>
-        } />
-        
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-    </Router>
-  );
-};
+        <div style={{ marginTop: '40px', padding: '20px 0', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+          <button onClick={handleLogout} style={{...styles.button, width: '100%'}}>
+            🚪 Выйти
+          </button>
+        </div>
+      </div>
 
-const App: React.FC = () => {
-  return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+      {/* Main Content */}
+      <div style={styles.content}>
+        {error && <div style={styles.error}>{error}</div>}
+        {message && <div style={styles.success}>{message}</div>}
+        
+        {renderContent()}
+      </div>
+    </div>
   );
 };
 
 export default App;
 EOF
 
-log "🧹 Очистка Docker кэша..."
-docker system prune -f --volumes 2>/dev/null || true
+log "🔨 Пересборка frontend с полным функционалом..."
+docker build --no-cache -t wild-frontend ./wild-analytics-web
 
-log "🔨 Пересборка контейнеров с полным функционалом..."
-docker-compose build --no-cache
+if [ $? -eq 0 ]; then
+    log "✅ Frontend с полным функционалом собран!"
+    
+    log "🚀 Запуск обновленного frontend..."
+    docker run -d --name wild-frontend -p 3000:3000 wild-frontend
+    
+    log "⏳ Ожидание запуска (30 сек)..."
+    sleep 30
+    
+    log "🔍 Проверка статуса..."
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    
+    log "📋 Логи frontend..."
+    docker logs wild-frontend --tail 10
+    
+    log "✅ ПОЛНЫЙ ФУНКЦИОНАЛ ВОССТАНОВЛЕН!"
+    log ""
+    log "🎯 Теперь доступно:"
+    log "   📊 Dashboard - информация о пользователе"
+    log "   🔍 Анализ товаров - поиск по ID WB или названию"
+    log "   🏷️ Анализ брендов - анализ товаров бренда"
+    log "   📂 Анализ категорий - статистика категорий"
+    log "   🌐 Глобальный поиск - поиск по каталогу WB"
+    log "   ⭐ Сезонность, 🏪 Поставщики, 👥 Блогеры (в разработке)"
+    log "   📺 Мониторинг рекламы, 📋 Планирование, 🔮 Oracle"
+    log ""
+    log "🌐 Откройте: http://93.127.214.183:3000"
+    log "🔍 Попробуйте анализ товара: 314308192 (iPhone)"
+    log "🏷️ Анализ бренда: Apple"
+    log "📂 Анализ категории: смартфоны"
+    
+else
+    log "❌ Ошибка сборки frontend с полным функционалом"
+fi
 
-log "🚀 Запуск контейнеров..."
-docker-compose up -d
-
-log "⏳ Ожидание запуска сервисов (60 секунд)..."
-sleep 60
-
-log "🔍 Проверка статуса..."
-echo "=== СТАТУС КОНТЕЙНЕРОВ ==="
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-
-echo ""
-echo "=== ПРОВЕРКА BACKEND API ==="
-curl -s http://93.127.214.183:8000/health | jq . 2>/dev/null || curl -s http://93.127.214.183:8000/health
-
-echo ""
-echo "=== ТЕСТ АВТОРИЗАЦИИ ==="
-curl -s -X POST http://93.127.214.183:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"password123"}' | jq . 2>/dev/null || \
-curl -s -X POST http://93.127.214.183:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"password123"}'
-
-log "✅ Полное восстановление функционала завершено!"
-log ""
-log "🌐 Доступ к приложению:"
-log "   Frontend: http://93.127.214.183:3000"
-log "   Backend API: http://93.127.214.183:8000"
-log ""
-log "👤 Тестовая учетная запись:"
-log "   Email: test@example.com"
-log "   Password: password123"
-log ""
-log "🔧 Восстановленный функционал:"
-log "   ✅ Полная авторизация с JWT токенами"
-log "   ✅ SQLite база данных с таблицами пользователей и анализов"
-log "   ✅ Защищенные API endpoints"
-log "   ✅ Роутинг и приватные маршруты"
-log "   ✅ Полнофункциональный Dashboard"
-log "   ✅ Все аналитические модули"
-log "   ✅ Поиск и мониторинг"
-log "   ✅ Профиль пользователя"
-log ""
-log "🎯 Теперь все функции должны работать корректно!" 
+log "📊 ФИНАЛЬНЫЙ СТАТУС..."
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 
